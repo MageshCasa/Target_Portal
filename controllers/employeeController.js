@@ -34,7 +34,7 @@ export const createEmployee = async (req, res) => {
 
         console.log("ENTERED VALUE:", enteredValue);
 
-        // Insert Employee Details
+        // Insert Employee
         await db.promise().execute(
             `
             INSERT INTO employeedetails
@@ -60,16 +60,18 @@ export const createEmployee = async (req, res) => {
             LIMIT 1
         `);
 
-        console.log("LAST ROW:", lastRow);
+        let currentAmount;
 
-        // Default Initial Achieved
-        let currentAmount = 8700.00;
+        // FIRST ENTRY
+        if (lastRow.length === 0) {
 
-        // If rows exist take latest achieved
-        if (lastRow.length > 0) {
+            currentAmount = 8700;
 
+        } else {
+
+            // NEXT ENTRIES
             currentAmount =
-                parseFloat(lastRow[0].achieved) || 8700.00;
+                parseFloat(lastRow[0].achieved) || 8700;
 
         }
 
@@ -81,7 +83,7 @@ export const createEmployee = async (req, res) => {
 
         console.log("NEW ACHIEVED:", newAchieved);
 
-        // Store Tracker Data
+        // Insert Tracker
         await db.promise().execute(
             `
             INSERT INTO target_tracker
