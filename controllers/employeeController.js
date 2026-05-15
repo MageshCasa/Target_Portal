@@ -63,13 +63,13 @@ export const createEmployee = async (req, res) => {
         console.log("LAST ROW:", lastRow);
 
         // Default Initial Achieved
-        let currentAmount = 8670.00;
+        let currentAmount = 8700.00;
 
         // If rows exist take latest achieved
         if (lastRow.length > 0) {
 
             currentAmount =
-                parseFloat(lastRow[0].achieved) || 8670.00;
+                parseFloat(lastRow[0].achieved) || 8700.00;
 
         }
 
@@ -139,12 +139,12 @@ export const getDashboardDetails = async (req, res) => {
             LIMIT 1
         `);
 
-        let achieved = 8670.00;
+        let achieved = 8700.00;
 
         if (rows.length > 0) {
 
             achieved =
-                parseFloat(rows[0].achieved) || 8670.00;
+                parseFloat(rows[0].achieved) || 8700.00;
 
         }
 
@@ -217,7 +217,7 @@ export const updateAchievedValue = async (req, res) => {
             LIMIT 1
         `);
 
-        const lastAchieved = Number(lastRow[0].achieved);
+        const lastAchieved = Number(lastRow[0].achieved) || 8700.00;
 
         // Add new value
         const newAchieved = lastAchieved + Number(value);
@@ -325,9 +325,6 @@ export const getLastTwoEmployees = async (req, res) => {
     }
 
 };
-
-
-
 
 export const loginUser = async (req, res) => {
 
