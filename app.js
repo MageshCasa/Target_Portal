@@ -7,27 +7,22 @@ dotenv.config();
 
 const app = express();
 
-// Allow All Origins
 app.use(
-    cors({
-        origin: "*",
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        credentials: true
-    })
+  cors({
+    origin: "http://targetportal.s3-website.ap-south-1.amazonaws.com",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true
+  })
 );
 
 app.use(express.json());
 
-// Static Upload Folder
 app.use("/uploads", express.static("uploads"));
 
-// Routes
 app.use("/api", employeeRoutes);
 
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-
-    console.log(`Server running on ${PORT}`);
-
+  console.log(`Server running on ${PORT}`);
 });
