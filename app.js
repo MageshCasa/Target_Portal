@@ -7,39 +7,44 @@ dotenv.config();
 
 const app = express();
 
-app.use((req, res, next) => {
-  res.header(
-    "Access-Control-Allow-Origin",
-    "*"
-  );
+// CORS CONFIG
+app.use(
+  cors({
+    origin: [
+      "http://targetportal.s3-website.ap-south-1.amazonaws.com",
+      "http://localhost:3000",
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Origin",
+      "X-Requested-With",
+      "Content-Type",
+      "Accept",
+      "Authorization",
+    ],
+    credentials: true,
+  })
+);
 
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-  );
+// HANDLE PREFLIGHT
+app.options("*", cors());
 
-  res.header(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, DELETE, OPTIONS"
-  );
-
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-
-  next();
-});
-
-app.use(cors());
-
+// BODY PARSER
 app.use(express.json());
 
+// STATIC FILES
 app.use("/uploads", express.static("uploads"));
 
+// ROUTES
 app.use("/api", employeeRoutes);
+
+// TEST API
+app.get("/", (req, res) => {
+  res.send("API Running...");
+});
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`Server running on ${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
 });
