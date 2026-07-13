@@ -204,8 +204,10 @@ for (const row of sheetData) {
 
 export const createEmployee = async (req, res) => {
     try {
-
         console.log("========== CREATE EMPLOYEE ==========");
+
+        console.log("BODY :", req.body);
+        console.log("FILE :", req.file);
 
         const {
             name,
@@ -214,22 +216,38 @@ export const createEmployee = async (req, res) => {
             value
         } = req.body;
 
-        console.log("BODY :", req.body);
+        // Validate required fields
+        if (!name || !empid || !projectname || !value) {
+            return res.status(400).json({
+                success: false,
+                message: "name, empid, projectname and value are required"
+            });
+        }
 
         // Employee Image
         const empimage = req.file ? req.file.location : null;
 
-        // Convert value
+        // Convert value to number
         const enteredValue = Number(value);
 
         if (isNaN(enteredValue)) {
             return res.status(400).json({
                 success: false,
-                message: "Please enter a valid value."
+                message: "Please enter a valid value"
             });
         }
 
-        // Save Employee
+
+        console.log("INSERT DATA :", {
+            name,
+            empid,
+            projectname,
+            enteredValue,
+            empimage
+        });
+
+
+        // Insert Employee
         await db.promise().execute(
             `
             INSERT INTO employeedetails
@@ -243,36 +261,50 @@ export const createEmployee = async (req, res) => {
             VALUES (?, ?, ?, ?, ?)
             `,
             [
-                name,
-                empid,
-                projectname,
-                enteredValue,
-                empimage
+                name ?? null,
+                empid ?? null,
+                projectname ?? null,
+                enteredValue ?? null,
+                empimage ?? null
             ]
         );
 
-        // Get last achieved value
-        const [trackerRows] = await db.promise().execute(`
+
+        // Fetch latest achieved value
+        const [trackerRows] = await db.promise().execute(
+            `
             SELECT achieved
             FROM target_tracker
             ORDER BY id DESC
             LIMIT 1
-        `);
+            `
+        );
 
-        // Default starting value
-        let currentAmount = 1512.00;
+
+        // Default starting amount
+        let currentAmount = 1512;
+
 
         if (
             trackerRows.length > 0 &&
-            trackerRows[0].achieved != null
+            trackerRows[0].achieved !== null
         ) {
             currentAmount = Number(trackerRows[0].achieved);
         }
 
-        // Calculate new achieved value
+
+        // Calculate new achieved
         const newAchieved = currentAmount + enteredValue;
 
-        // Save tracker
+
+        console.log("TARGET UPDATE :", {
+            currentAmount,
+            addedAmount: enteredValue,
+            achieved: newAchieved
+        });
+
+
+        // Insert tracker history
         await db.promise().execute(
             `
             INSERT INTO target_tracker
@@ -290,14 +322,24 @@ export const createEmployee = async (req, res) => {
             ]
         );
 
+
         return res.status(200).json({
             success: true,
             message: "Employee created successfully",
-            currentAmount,
-            addedAmount: enteredValue,
-            achieved: newAchieved,
-            imageUrl: empimage
+            data: {
+                name,
+                empid,
+                projectname,
+                value: enteredValue,
+                imageUrl: empimage
+            },
+            tracker: {
+                currentAmount,
+                addedAmount: enteredValue,
+                achieved: newAchieved
+            }
         });
+
 
     } catch (error) {
 
@@ -305,6 +347,7 @@ export const createEmployee = async (req, res) => {
 
         return res.status(500).json({
             success: false,
+            message: "Failed to create employee",
             error: error.message
         });
 
