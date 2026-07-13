@@ -1,44 +1,245 @@
 import db from "../confirg/db.js";
 import jwt from "jsonwebtoken";
+import multer from "multer";
+import s3 from "../confirg/s3.js";
+
+import XLSX from "xlsx";
+import fs from "fs";
+import AdmZip from "adm-zip";
+import path from "path";
+
+import { Upload } from "@aws-sdk/lib-storage";
+
+export const uploadBulkEmployees = async (req, res) => {
+
+  try {
+
+    // ZIP File
+    const zipFile = req.file;
+
+    if (!zipFile) {
+
+      return res.status(400).json({
+        success: false,
+        message: "ZIP file required"
+      });
+    }
+
+    // Create Extract Folder
+    const extractPath =
+      `uploads/extracted_${Date.now()}`;
+
+    fs.mkdirSync(extractPath, {
+      recursive: true
+    });
+
+    // Extract ZIP
+    const zip = new AdmZip(zipFile.path);
+
+    zip.extractAllTo(extractPath, true);
+
+    // Read Extracted Files
+    const files =
+      fs.readdirSync(extractPath);
+
+    // Find Excel File
+    const excelName = files.find(
+      (file) =>
+        file.endsWith(".xlsx") ||
+        file.endsWith(".xls")
+    );
+
+    if (!excelName) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "Excel file not found inside ZIP"
+      });
+    }
+
+    // Excel Full Path
+    const excelPath = path.join(
+      extractPath,
+      excelName
+    );
+
+    // Read Excel
+    const workbook =
+      XLSX.readFile(excelPath);
+
+    const sheetName =
+      workbook.SheetNames[0];
+
+    const sheetData =
+      XLSX.utils.sheet_to_json(
+        workbook.Sheets[sheetName]
+      );
+
+    // Images Folder Path
+    const imageFolder = path.join(
+      extractPath,
+      "images"
+    );
+
+    // Read Images
+    const imageFiles =
+      fs.existsSync(imageFolder)
+        ? fs.readdirSync(imageFolder)
+        : [];
+
+    // Store Uploaded Image URLs
+    const imageMap = {};
+
+    // Upload Images To S3
+    for (const image of imageFiles) {
+
+      // Example:
+      // CTS1001.png -> CTS1001
+      const empId =
+        image.split(".")[0];
+
+      // Image Path
+      const imagePath = path.join(
+        imageFolder,
+        image
+      );
+
+      // Read Image
+      const fileContent =
+        fs.readFileSync(imagePath);
+
+      // Upload To S3
+      const upload = new Upload({
+        client: s3,
+
+        params: {
+          Bucket:
+            process.env.S3_BUCKET_NAME,
+
+          Key:
+            `employee/${Date.now()}-${image}`,
+
+          Body: fileContent,
+
+          ContentType: "image/png"
+        }
+      });
+
+      const uploadResult =
+        await upload.done();
+
+      // Save S3 URL
+      imageMap[empId] =
+        uploadResult.Location;
+    }
+
+    // Insert Employee Data
+// Insert Employee Data
+for (const row of sheetData) {
+
+  // Check Existing EmpID
+  const [existingUser] =
+    await db.promise().query(
+      `
+      SELECT empid
+      FROM users_details
+      WHERE empid = ?
+      `,
+      [row.empid]
+    );
+
+  // If Already Exists
+  if (existingUser.length > 0) {
+
+    return res.status(400).json({
+      success: false,
+      message:
+        `Employee ID ${row.empid} already exists`
+    });
+  }
+
+  // Match Image Using empid
+  const imageUrl =
+    imageMap[row.empid] || null;
+
+  // Insert Into DB
+  await db.promise().query(
+    `
+    INSERT INTO users_details
+    (
+      name,
+      empid,
+      empimg
+    )
+    VALUES (?, ?, ?)
+    `,
+    [
+      row.name,
+      row.empid,
+      imageUrl
+    ]
+  );
+}
+
+    // Delete ZIP File
+    fs.unlinkSync(zipFile.path);
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Bulk employees uploaded successfully"
+    });
+
+  } catch (error) {
+
+    console.log(error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
 
 export const createEmployee = async (req, res) => {
-
     try {
 
-        console.log("API HIT");
+        console.log("========== CREATE EMPLOYEE ==========");
 
         const {
             name,
             empid,
             projectname,
-            value,
-            type
+            value
         } = req.body;
 
-        console.log("BODY:", req.body);
+        console.log("BODY :", req.body);
 
-        // Upload Image
-        const empimage = req.file
-            ? req.file.location
-            : null;
+        // Employee Image
+        const empimage = req.file ? req.file.location : null;
 
-        // Convert entered value
-        let enteredValue = parseFloat(value) || 0;
+        // Convert value
+        const enteredValue = Number(value);
 
-        // Convert Lakhs -> Crores
-        if (type === "lakhs") {
-
-            enteredValue = enteredValue / 100;
-
+        if (isNaN(enteredValue)) {
+            return res.status(400).json({
+                success: false,
+                message: "Please enter a valid value."
+            });
         }
 
-        console.log("ENTERED VALUE:", enteredValue);
-
-        // Insert Employee
+        // Save Employee
         await db.promise().execute(
             `
             INSERT INTO employeedetails
-            (name, empid, projectname, value, empimage)
+            (
+                name,
+                empid,
+                projectname,
+                value,
+                empimage
+            )
             VALUES (?, ?, ?, ?, ?)
             `,
             [
@@ -50,40 +251,28 @@ export const createEmployee = async (req, res) => {
             ]
         );
 
-        console.log("EMPLOYEE INSERTED");
-
-        // Get Latest Achieved Value
-        const [lastRow] = await db.promise().execute(`
+        // Get last achieved value
+        const [trackerRows] = await db.promise().execute(`
             SELECT achieved
             FROM target_tracker
             ORDER BY id DESC
             LIMIT 1
         `);
 
-        let currentAmount;
+        // Default starting value
+        let currentAmount = 1512.00;
 
-        // FIRST ENTRY
-        if (lastRow.length === 0) {
-
-            currentAmount = 8700;
-
-        } else {
-
-            // NEXT ENTRIES
-            currentAmount =
-                parseFloat(lastRow[0].achieved) || 8700;
-
+        if (
+            trackerRows.length > 0 &&
+            trackerRows[0].achieved != null
+        ) {
+            currentAmount = Number(trackerRows[0].achieved);
         }
 
-        console.log("CURRENT AMOUNT:", currentAmount);
+        // Calculate new achieved value
+        const newAchieved = currentAmount + enteredValue;
 
-        // Add New Value
-        const newAchieved =
-            currentAmount + enteredValue;
-
-        console.log("NEW ACHIEVED:", newAchieved);
-
-        // Insert Tracker
+        // Save tracker
         await db.promise().execute(
             `
             INSERT INTO target_tracker
@@ -101,8 +290,6 @@ export const createEmployee = async (req, res) => {
             ]
         );
 
-        console.log("TRACKER INSERTED");
-
         return res.status(200).json({
             success: true,
             message: "Employee created successfully",
@@ -114,7 +301,7 @@ export const createEmployee = async (req, res) => {
 
     } catch (error) {
 
-        console.log("ERROR:", error);
+        console.log("CREATE EMPLOYEE ERROR :", error);
 
         return res.status(500).json({
             success: false,
@@ -122,55 +309,47 @@ export const createEmployee = async (req, res) => {
         });
 
     }
-
 };
 
-
 export const getDashboardDetails = async (req, res) => {
-
     try {
 
-        // Fixed Target
-        const target = 10400;
+        const target = 9500;
 
-        // Get Latest Achieved Value
         const [rows] = await db.promise().execute(`
-            SELECT achieved
+            SELECT current_amount, added_amount, achieved
             FROM target_tracker
             ORDER BY id DESC
             LIMIT 1
         `);
 
-        let achieved = 8700.00;
+        let achieved = 1512;
+        let currentAmount = 1512;
+        let addedAmount = 0;
 
         if (rows.length > 0) {
-
-            achieved =
-                parseFloat(rows[0].achieved) || 8700.00;
-
+            currentAmount = Number(rows[0].current_amount);
+            addedAmount = Number(rows[0].added_amount);
+            achieved = Number(rows[0].achieved);
         }
 
-        // Pending Amount
         const pending = target - achieved;
 
         return res.status(200).json({
             success: true,
             target,
+            currentAmount,
+            addedAmount,
             achieved,
             pending
         });
 
     } catch (error) {
-
-        console.log(error);
-
         return res.status(500).json({
             success: false,
             error: error.message
         });
-
     }
-
 };
 
 export const getEmployees = async (req, res) => {
@@ -298,7 +477,7 @@ export const getLastTwoEmployees = async (req, res) => {
             SELECT *
             FROM employeedetails
             ORDER BY id DESC
-            LIMIT 2
+            LIMIT 1
         `);
 
         if (rows.length === 0) {
@@ -326,6 +505,57 @@ export const getLastTwoEmployees = async (req, res) => {
 
     }
 
+};
+
+export const getTargetProgress = async (req, res) => {
+    try {
+
+        const TARGET = 9500;
+
+        // Fetch the latest achieved value
+        const [rows] = await db.promise().execute(`
+            SELECT achieved
+            FROM target_tracker
+            ORDER BY id DESC
+            LIMIT 1
+        `);
+
+        if (rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No target tracker data found."
+            });
+        }
+
+        // Dynamic achieved value from the last row
+        const achieved = Number(rows[0].achieved);
+
+        // Calculate pending
+        const pending = TARGET - achieved;
+
+        // Calculate percentage
+        const percentage = Number(
+            ((achieved / TARGET) * 100).toFixed(2)
+        );
+
+        return res.status(200).json({
+            success: true,
+            target: TARGET,
+            achieved,
+            pending,
+            percentage
+        });
+
+    } catch (error) {
+
+        console.log(error);
+
+        return res.status(500).json({
+            success: false,
+            error: error.message
+        });
+
+    }
 };
 
 export const loginUser = async (req, res) => {
@@ -419,5 +649,59 @@ export const loginUser = async (req, res) => {
 
     }
 
+};
+
+export const getEmployeeByEmpId = async (req, res) => {
+
+  try {
+
+    const { empid } = req.params;
+
+    if (!empid) {
+
+      return res.status(400).json({
+        success: false,
+        message: "EmpID is required"
+      });
+    }
+
+    // Fetch Employee
+    const [employee] =
+      await db.promise().query(
+        `
+        SELECT
+          name,
+          empid,
+          empimg
+        FROM users_details
+        WHERE empid = ?
+        `,
+        [empid]
+      );
+
+    // Employee Not Found
+    if (employee.length === 0) {
+
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found"
+      });
+    }
+
+    // Success Response
+    return res.status(200).json({
+      success: true,
+      data: employee[0]
+    });
+
+  } catch (error) {
+
+    console.log(error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
 
