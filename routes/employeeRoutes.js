@@ -20,7 +20,17 @@ const router = express.Router();
 
 // Local Upload For Excel
 const upload = multer({
-    dest: "uploads/",
+    storage: multerS3({
+        s3: s3,
+        bucket: "casatask-files",
+        contentType: multerS3.AUTO_CONTENT_TYPE,
+        key: function (req, file, cb) {
+            cb(
+                null,
+                `employees/${Date.now()}-${file.originalname}`
+            );
+        }
+    })
 });
 
 // Existing APIs
