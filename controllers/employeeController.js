@@ -513,24 +513,14 @@ export const getLastTargetTracker = async (req, res) => {
 };
 
 export const getLastTwoEmployees = async (req, res) => {
-
     try {
 
         const [rows] = await db.promise().execute(`
             SELECT *
             FROM employeedetails
+            WHERE DATE(createdAt) = CURDATE()
             ORDER BY id DESC
-            LIMIT 1
         `);
-
-        if (rows.length === 0) {
-
-            return res.status(404).json({
-                success: false,
-                message: "No employee data found"
-            });
-
-        }
 
         return res.status(200).json({
             success: true,
@@ -547,7 +537,6 @@ export const getLastTwoEmployees = async (req, res) => {
         });
 
     }
-
 };
 
 export const getTargetProgress = async (req, res) => {
